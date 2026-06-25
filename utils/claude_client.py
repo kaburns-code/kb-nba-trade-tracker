@@ -1,58 +1,50 @@
 import anthropic
 import streamlit as st
-from typing import Generator
+import json
+import re
  
  
 def get_client() -> anthropic.Anthropic:
-    """Initialize Anthropic client from Streamlit secrets or env."""
     try:
         api_key = st.secrets["ANTHROPIC_API_KEY"]
     except (KeyError, FileNotFoundError):
         import os
         api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        st.error("❌ No ANTHROPIC_API_KEY found. Add it to `.streamlit/secrets.toml` or as an environment variable.")
+        st.error("❌ No ANTHROPIC_API_KEY found. Add it to Streamlit secrets.")
         st.stop()
     return anthropic.Anthropic(api_key=api_key)
  
  
-def stream_response(prompt: str, placeholder, system: str = "") -> str:
-    """
-    Stream a Claude response with web search into a Streamlit placeholder.
-    Returns the full text when done.
-    """
+def fetch_json(prompt: str, system: str = "") -> dict | list | None:
+    """Call Claude with web search, expect a JSON response back."""
     client = get_client()
-    full_text = ""
- 
     kwargs = dict(
         model="claude-sonnet-4-6",
-        max_tokens=2000,
+        max_tokens=4000,
         tools=[{"type": "web_search_20250305", "name": "web_search"}],
         messages=[{"role": "user", "content": prompt}],
     )
     if system:
         kwargs["system"] = system
  
-    with client.messages.stream(**kwargs) as stream:
-        for text in stream.text_stream:
-            full_text += text
-            placeholder.markdown(full_text + "▌")
+    with st.spinner("Fetching live data..."):
+        response = client.messages.create(**kwargs)
  
-    placeholder.markdown(full_text)
-    return full_text
+    raw = "".join(b.text for b in response.content if hasattr(b, "text"))
  
+    # Strip markdown code fences if present
+    clean = re.sub(r"```json|```", "", raw).strip()
  
-def simple_query(prompt: str, system: str = "") -> str:
-    """Non-streaming query, returns full response text."""
-    client = get_client()
-    kwargs = dict(
-        model="claude-sonnet-4-6",
-        max_tokens=2000,
-        tools=[{"type": "web_search_20250305", "name": "web_search"}],
-        messages=[{"role": "user", "content": prompt}],
-    )
-    if system:
-        kwargs["system"] = system
- 
-    response = client.messages.create(**kwargs)
-    return "".join(b.text for b in response.content if hasattr(b, "text"))
+    try:
+        return json.loads(clean)
+    except json.JSONDecodeError:
+        match = re.search(r"(\{.*\}|\[.*\])", clean, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except Exception:
+                pass
+        st.error("Could not parse structured data. Raw response below:")
+        st.code(raw)
+        return None
