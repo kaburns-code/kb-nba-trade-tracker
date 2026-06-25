@@ -45,7 +45,7 @@ def render():
 
     col1, col2 = st.columns([4, 1])
     with col2:
-        refresh = st.button("🔄 Refresh", use_container_width=True)
+        refresh = st.button("🔄 Refresh", key="refresh_rumors", use_container_width=True)
 
     # Custom trade analyzer
     with st.expander("⚡ Analyze your own rumored trade"):
